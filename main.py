@@ -16,8 +16,8 @@ class Item(BaseModel):
     Description: str
 
 # Postavljanje AWS pristupnih ključeva i regiona
-aws_access_key_id = "AKIA5KFZDVNCCZ2ZWHU6"
-aws_secret_access_key = "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"
+aws_access_key_id = ""
+aws_secret_access_key = ""
 region_name = "eu-north-1"
 
 # Stvaranje povezivanja s DynamoDB-om
