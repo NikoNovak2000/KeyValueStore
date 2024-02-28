@@ -15,7 +15,7 @@ class Item(BaseModel):
     Price: int
     Description: str
 
-# Stvaranje povezivanja s DynamoDB-om
+# Connection with DynamoDB
 dynamodb = boto3.resource('dynamodb',
                           aws_access_key_id=aws_access_key_id,
                           aws_secret_access_key=aws_secret_access_key,
@@ -28,8 +28,7 @@ table = dynamodb.Table(table_name)
 async def read_root():
     return {"message": "Hello, world!"}
 
-# CRUD operacije
-
+# CRUD operations
 # Post method to create an item
 @app.post('/items/')
 async def create_item(item: Item):
@@ -55,11 +54,42 @@ def read_item(sku: str):
         # Reading an item from the table based on SKU
         response = table.get_item(Key={'SKU': sku})
         if 'Item' not in response:
-            # If the item is not found, return a 404 error
+            # If the item is not found, return 404 error
             raise HTTPException(status_code=404, detail='Item not found')
         return response['Item']
     except Exception as e:
-        # Log the exception
         logger.exception("An error occurred while retrieving item with SKU: %s", sku)
+        # If an error occurs, raise a 500 error
+        raise HTTPException(status_code=500, detail=str(e))
+
+# PUT method for updating an item by SKU
+@app.put('/items/{sku}')
+def update_item(sku: str, item: Item):
+    try:
+        # Convert DateAdded to ISO 8601 string
+        date_added_str = item.DateAdded.isoformat()
+        # Update the item in the DynamoDB table
+        response = table.update_item(
+            Key={'SKU': sku},
+            UpdateExpression='SET #dateAdded = :da, #name = :n, #quantity = :q, #price = :p, #description = :d',
+            ExpressionAttributeNames={
+                '#dateAdded': 'DateAdded',
+                '#name': 'Name',
+                '#quantity': 'Quantity',
+                '#price': 'Price',
+                '#description': 'Description'
+            },
+            ExpressionAttributeValues={
+                ':da': date_added_str,
+                ':n': item.Name,
+                ':q': item.Quantity,
+                ':p': item.Price,
+                ':d': item.Description
+            },
+            ReturnValues='UPDATED_NEW'
+        )
+        return response['Attributes']
+    except Exception as e:
+        logger.exception("An error occurred while updating item with SKU: %s", sku)
         # If an error occurs, raise a 500 error
         raise HTTPException(status_code=500, detail=str(e))
