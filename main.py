@@ -26,7 +26,7 @@ table = dynamodb.Table(table_name)
 
 @app.get('/')
 async def read_root():
-    return {"message": "Hello, world!"}
+    return {"message": "Server is on!"}
 
 # CRUD operations
 # Post method to create an item
@@ -91,5 +91,19 @@ def update_item(sku: str, item: Item):
         return response['Attributes']
     except Exception as e:
         logger.exception("An error occurred while updating item with SKU: %s", sku)
+        # If an error occurs, raise a 500 error
+        raise HTTPException(status_code=500, detail=str(e))
+
+# DELETE method to delete an item by SKU
+@app.delete('/items/{sku}')
+def delete_item(sku: str):
+    try:
+        # Deleting the item from the DynamoDB table based on SKU
+        response = table.delete_item(Key={'SKU': sku})
+        if 'ResponseMetadata' in response and response['ResponseMetadata']['HTTPStatusCode'] == 200:
+            return {'message': f'Item with SKU {sku} deleted successfully'}
+        else:
+            raise HTTPException(status_code=404, detail='Item not found')
+    except Exception as e:
         # If an error occurs, raise a 500 error
         raise HTTPException(status_code=500, detail=str(e))
