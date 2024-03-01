@@ -3,13 +3,12 @@ from pydantic import BaseModel
 from datetime import datetime
 import logging
 import boto3
+import uuid
 
 app = FastAPI()
 
 # Define the model for the item with Pydantic model
 class Item(BaseModel):
-    SKU: str
-    DateAdded: datetime
     Name: str
     Quantity: int
     Price: int
@@ -33,13 +32,25 @@ async def read_root():
 @app.post('/items/')
 async def create_item(item: Item):
     try:
-        # Convert DateAdded to timestamp
-        item.DateAdded = int(item.DateAdded.timestamp())
+        # Generate a unique SKU for the item
+        sku = str(uuid.uuid4())
+
+        # Set DateAdded to current date and time
+        date_added = datetime.now()
 
         # Put the item into the DynamoDB table
-        table.put_item(Item=item.dict())
+        table.put_item(
+            Item={
+                'SKU': sku,
+                'DateAdded': date_added.strftime("%d/%m/%Y"),
+                'Name': item.Name,
+                'Quantity': item.Quantity,
+                'Price': item.Price,
+                'Description': item.Description
+            }
+        )
 
-        return {'message': 'Item created successfully'}
+        return {'message': 'Item created successfully', 'SKU': sku}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -56,7 +67,21 @@ def read_item(sku: str):
         if 'Item' not in response:
             # If the item is not found, return 404 error
             raise HTTPException(status_code=404, detail='Item not found')
-        return response['Item']
+
+        # Extract item data from the response
+        item_data = response['Item']
+
+        # Reorder the attributes
+        reordered_item = {
+            'SKU': item_data['SKU'],
+            'DateAdded': item_data['DateAdded'],
+            'Name': item_data['Name'],
+            'Quantity': item_data['Quantity'],
+            'Price': item_data['Price'],
+            'Description': item_data['Description']
+        }
+
+        return reordered_item
     except Exception as e:
         logger.exception("An error occurred while retrieving item with SKU: %s", sku)
         # If an error occurs, raise a 500 error
@@ -66,21 +91,17 @@ def read_item(sku: str):
 @app.put('/items/{sku}')
 def update_item(sku: str, item: Item):
     try:
-        # Convert DateAdded to ISO 8601 string
-        date_added_str = item.DateAdded.isoformat()
         # Update the item in the DynamoDB table
         response = table.update_item(
             Key={'SKU': sku},
-            UpdateExpression='SET #dateAdded = :da, #name = :n, #quantity = :q, #price = :p, #description = :d',
+            UpdateExpression='SET #name = :n, #quantity = :q, #price = :p, #description = :d',
             ExpressionAttributeNames={
-                '#dateAdded': 'DateAdded',
                 '#name': 'Name',
                 '#quantity': 'Quantity',
                 '#price': 'Price',
                 '#description': 'Description'
             },
             ExpressionAttributeValues={
-                ':da': date_added_str,
                 ':n': item.Name,
                 ':q': item.Quantity,
                 ':p': item.Price,
@@ -90,7 +111,6 @@ def update_item(sku: str, item: Item):
         )
         return response['Attributes']
     except Exception as e:
-        logger.exception("An error occurred while updating item with SKU: %s", sku)
         # If an error occurs, raise a 500 error
         raise HTTPException(status_code=500, detail=str(e))
 
