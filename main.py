@@ -4,6 +4,10 @@ from datetime import datetime
 import logging
 import boto3
 import uuid
+import os
+
+# Read port from environment variable, if not set -> default port 8000
+port = int(os.environ.get("PORT", 8000))
 
 app = FastAPI()
 
