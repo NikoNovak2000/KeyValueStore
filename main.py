@@ -4,21 +4,18 @@ from datetime import datetime
 import logging
 import boto3
 import uuid
-import os
-
-# Read port from environment variable, if not set -> default port 8000
-port = int(os.environ.get("PORT", 8000))
+from uhashring import HashRing
 
 app = FastAPI()
 
-# Define the model for the item with Pydantic model
+# Defined model for items with Pydantic model
 class Item(BaseModel):
     Name: str
     Quantity: int
     Price: int
     Description: str
 
-# Connection with DynamoDB
+# Connecting with DynamoDB
 dynamodb = boto3.resource('dynamodb',
                           aws_access_key_id=aws_access_key_id,
                           aws_secret_access_key=aws_secret_access_key,
@@ -26,6 +23,14 @@ dynamodb = boto3.resource('dynamodb',
 
 table_name = 'Inventory'
 table = dynamodb.Table(table_name)
+
+# Shard servers
+memcache_servers = ["http://app:8000", "http://app2:8001", "http://app3:8002"]
+ring = HashRing(memcache_servers)
+
+# Error logging set up
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 @app.get('/')
 async def read_root():
@@ -36,13 +41,15 @@ async def read_root():
 @app.post('/items/')
 async def create_item(item: Item):
     try:
-        # Generate a unique SKU for the item
+        # Generate a unique SKU
         sku = str(uuid.uuid4())
 
         # Set DateAdded to current date and time
         date_added = datetime.now()
 
-        # Put the item into the DynamoDB table
+        server = ring.get_node(sku)
+
+        # Put item in db
         table.put_item(
             Item={
                 'SKU': sku,
@@ -54,19 +61,15 @@ async def create_item(item: Item):
             }
         )
 
-        return {'message': 'Item created successfully', 'SKU': sku}
+        return {'message': 'Item created successfully', 'SKU': sku, 'Server': server}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # GET method to retrieve an item by SKU
 @app.get('/items/{sku}')
 def read_item(sku: str):
     try:
-        # Reading an item from the table based on SKU
+        # Read item from db based on SKU
         response = table.get_item(Key={'SKU': sku})
         if 'Item' not in response:
             # If the item is not found, return 404 error
@@ -75,7 +78,7 @@ def read_item(sku: str):
         # Extract item data from the response
         item_data = response['Item']
 
-        # Reorder the attributes
+        # Reordering the attributes
         reordered_item = {
             'SKU': item_data['SKU'],
             'DateAdded': item_data['DateAdded'],
@@ -88,14 +91,13 @@ def read_item(sku: str):
         return reordered_item
     except Exception as e:
         logger.exception("An error occurred while retrieving item with SKU: %s", sku)
-        # If an error occurs, raise a 500 error
         raise HTTPException(status_code=500, detail=str(e))
 
 # PUT method for updating an item by SKU
 @app.put('/items/{sku}')
 def update_item(sku: str, item: Item):
     try:
-        # Update the item in the DynamoDB table
+        # Update the item in db
         response = table.update_item(
             Key={'SKU': sku},
             UpdateExpression='SET #name = :n, #quantity = :q, #price = :p, #description = :d',
@@ -115,19 +117,17 @@ def update_item(sku: str, item: Item):
         )
         return response['Attributes']
     except Exception as e:
-        # If an error occurs, raise a 500 error
         raise HTTPException(status_code=500, detail=str(e))
 
-# DELETE method to delete an item by SKU
+# DELETE method
 @app.delete('/items/{sku}')
 def delete_item(sku: str):
     try:
-        # Deleting the item from the DynamoDB table based on SKU
+        # Deleting the item from db based on SKU
         response = table.delete_item(Key={'SKU': sku})
         if 'ResponseMetadata' in response and response['ResponseMetadata']['HTTPStatusCode'] == 200:
             return {'message': f'Item with SKU {sku} deleted successfully'}
         else:
             raise HTTPException(status_code=404, detail='Item not found')
     except Exception as e:
-        # If an error occurs, raise a 500 error
         raise HTTPException(status_code=500, detail=str(e))
