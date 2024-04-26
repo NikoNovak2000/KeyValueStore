@@ -4,16 +4,8 @@ from datetime import datetime
 import logging
 import boto3
 import uuid
-from uhashring import HashRing
 
 app = FastAPI()
-
-# Defined model for items with Pydantic model
-class Item(BaseModel):
-    Name: str
-    Quantity: int
-    Price: int
-    Description: str
 
 # Connecting with DynamoDB
 dynamodb = boto3.resource('dynamodb',
@@ -24,9 +16,12 @@ dynamodb = boto3.resource('dynamodb',
 table_name = 'Inventory'
 table = dynamodb.Table(table_name)
 
-# Shard servers
-memcache_servers = ["http://app:8000", "http://app2:8001", "http://app3:8002"]
-ring = HashRing(memcache_servers)
+# Defined model for items with Pydantic model
+class Item(BaseModel):
+    Name: str
+    Quantity: int
+    Price: int
+    Description: str
 
 # Error logging set up
 logging.basicConfig(level=logging.INFO)
@@ -47,8 +42,6 @@ async def create_item(item: Item):
         # Set DateAdded to current date and time
         date_added = datetime.now()
 
-        server = ring.get_node(sku)
-
         # Put item in db
         table.put_item(
             Item={
@@ -60,14 +53,13 @@ async def create_item(item: Item):
                 'Description': item.Description
             }
         )
-
-        return {'message': 'Item created successfully', 'SKU': sku, 'Server': server}
+        return {'message': 'Item created successfully', 'SKU': sku}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 # GET method to retrieve an item by SKU
 @app.get('/items/{sku}')
-def read_item(sku: str):
+async def read_item(sku: str):
     try:
         # Read item from db based on SKU
         response = table.get_item(Key={'SKU': sku})
@@ -94,8 +86,8 @@ def read_item(sku: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # PUT method for updating an item by SKU
-@app.put('/items/{sku}')
-def update_item(sku: str, item: Item):
+@app.put('/items/upd/{sku}')
+async def update_item(sku: str, item: Item):
     try:
         # Update the item in db
         response = table.update_item(
@@ -120,8 +112,8 @@ def update_item(sku: str, item: Item):
         raise HTTPException(status_code=500, detail=str(e))
 
 # DELETE method
-@app.delete('/items/{sku}')
-def delete_item(sku: str):
+@app.delete('/items/del/{sku}')
+async def delete_item(sku: str):
     try:
         # Deleting the item from db based on SKU
         response = table.delete_item(Key={'SKU': sku})
